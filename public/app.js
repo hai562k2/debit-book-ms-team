@@ -130,6 +130,7 @@
     const [settlements, setSettlements] = useState([]);
     const [status, setStatus] = useState('');
     const [error, setError] = useState('');
+    const [commandHelp, setCommandHelp] = useState('');
 
     const [manualForm, setManualForm] = useState({
       title: 'Cơm trưa hôm nay',
@@ -153,14 +154,16 @@
     async function refresh() {
       try {
         setError('');
-        const [campaignsRes, debtsRes, settlementsRes] = await Promise.all([
+        const [campaignsRes, debtsRes, settlementsRes, helpRes] = await Promise.all([
           callApi('/campaigns/open'),
           callApi('/debts/by-name'),
-          callApi('/debts/settlements')
+          callApi('/debts/settlements'),
+          callApi('/help/command').catch(() => ({ ok: true, data: { help: '' } }))
         ]);
         setOpenCampaigns(campaignsRes.data);
         setNameDebts(debtsRes.data);
         setSettlements(settlementsRes.data);
+        setCommandHelp(helpRes.data?.help || '');
       } catch (e) {
         setError(e.message);
       }
@@ -229,6 +232,13 @@
         React.createElement('h1', null, 'Quản lý nợ tiền cơm trưa (Teams webhook)'),
         React.createElement('p', { className: 'small' }, `Nhập account như anv1, hệ thống tự hiểu mail là ${toAccountEmail('anv1')}.`)
       ),
+
+      commandHelp
+        ? React.createElement('div', { className: 'panel' },
+            React.createElement('h2', null, 'Lệnh tạo nợ trong Teams chat'),
+            React.createElement('pre', { className: 'small help-pre' }, commandHelp)
+          )
+        : null,
 
       React.createElement('form', { className: 'panel', onSubmit: createCampaign },
         React.createElement('h2', null, '1) Tạo bữa trưa cần thu tiền'),

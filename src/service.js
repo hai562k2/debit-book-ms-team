@@ -513,20 +513,21 @@ function buildReminderDailyText(campaigns, dateKey) {
 }
 
 function buildCompletionText(campaign) {
+  const lines = [];
   const amountPerPerson = campaign.perPersonAmount.toLocaleString('vi-VN');
   const expected = getExpectedRepayers(campaign);
   const total = (campaign.perPersonAmount * expected).toLocaleString('vi-VN');
-  return (
-    `Đã thu đủ tiền bữa trưa: "${campaign.title}".\n` +
-    `Đã trả: ${expected}/${expected} người (${amountPerPerson} VND/người, tổng ${total} VND).\n` +
-    'Tạm dừng nhắc nợ cho bữa này.'
-  );
+  lines.push(`Đã thu đủ tiền bữa trưa: "${campaign.title}".`);
+  lines.push(`Đã trả: ${expected}/${expected} người (${amountPerPerson} VND/người, tổng ${total} VND).`);
+  lines.push('Tạm dừng nhắc nợ cho bữa này.');
+  return lines.join('\n');
 }
 
 function buildCampaignCreatedText(campaign, campaignsForNet = []) {
   const lines = [`Khởi tạo thu nợ bữa trưa: "${campaign.title}" (${campaign.dateKey}).`];
   const payer = getPayerDisplayName(campaign);
   if (payer) {
+    lines.push('');
     lines.push(`Người ứng tiền: ${payer}.`);
   }
 
@@ -534,6 +535,7 @@ function buildCampaignCreatedText(campaign, campaignsForNet = []) {
   if (debts.length === 0) {
     lines.push('Không xác định được danh sách ai nợ ai cho bữa này.');
   } else {
+    lines.push('');
     lines.push('Ai nợ ai cho bữa này:');
     for (const debt of debts) {
       lines.push(`- ${debt.debtorName} nợ ${debt.creditorName}: ${debt.amount.toLocaleString('vi-VN')} VND.`);
@@ -542,6 +544,7 @@ function buildCampaignCreatedText(campaign, campaignsForNet = []) {
 
   const settlements = buildPairSettlements(campaignsForNet);
   if (settlements.length > 0) {
+    lines.push('');
     lines.push('Cân đối hiện tại (đã bù trừ):');
     for (const item of settlements) {
       lines.push(`- ${item.debtorName} nợ ${item.creditorName}: ${item.amount.toLocaleString('vi-VN')} VND.`);
@@ -554,18 +557,20 @@ function buildCampaignCreatedText(campaign, campaignsForNet = []) {
 function buildCampaignProgressText(campaign, payment, campaignsForNet = []) {
   const lines = [];
   const paidLabel = (payment && payment.participantName) || 'Một người';
-  lines.push(`Cập nhật đã trả: ${paidLabel} cho bữa "${campaign.title}".`);
-
+  lines.push(`${paidLabel} đã trả cho bữa "${campaign.title}".`);
+  lines.push('');
   const expected = getExpectedRepayers(campaign);
   const paid = getCampaignPaidCount(campaign);
   const unpaidNames = getOutstandingParticipantNames(campaign);
   lines.push(`Tiến độ bữa này: ${paid}/${expected}.`);
+  lines.push('');
   if (unpaidNames.length > 0) {
     lines.push(`Còn nợ bữa này: ${unpaidNames.join(', ')}.`);
   }
-
+  lines.push('');
   const settlements = buildPairSettlements(campaignsForNet);
   if (settlements.length > 0) {
+    lines.push('');
     lines.push('Cân đối hiện tại (đã bù trừ):');
     for (const item of settlements) {
       lines.push(`- ${item.debtorName} nợ ${item.creditorName}: ${item.amount.toLocaleString('vi-VN')} VND.`);
