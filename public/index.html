@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Quản lý nợ cơm trưa - Teams</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <style>
+      :root {
+        --bg: #f6f8fb;
+        --panel: #ffffff;
+        --text: #0f172a;
+        --muted: #64748b;
+        --line: #dbe3ef;
+        --primary: #0b6bcb;
+        --danger: #c0392b;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: "Segoe UI", Tahoma, sans-serif;
+        color: var(--text);
+        background: radial-gradient(circle at top right, #d9ebff, var(--bg) 35%);
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 24px auto;
+        padding: 0 16px;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      h1, h2 { margin: 0 0 12px; }
+      h1 { font-size: 24px; }
+      h2 { font-size: 18px; }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      input, textarea, button {
+        font: inherit;
+      }
+      input, textarea {
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        padding: 10px;
+        color: var(--text);
+      }
+      textarea { min-height: 70px; resize: vertical; }
+      button {
+        border: 0;
+        border-radius: 9px;
+        background: var(--primary);
+        color: #fff;
+        padding: 10px 14px;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #0f766e;
+      }
+      .status {
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 8px;
+      }
+      .error { color: var(--danger); }
+      .campaign {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 12px;
+        margin-bottom: 10px;
+      }
+      .campaign-title {
+        margin: 0 0 8px;
+        font-weight: 600;
+      }
+      .small { font-size: 13px; color: var(--muted); }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 8px;
+      }
+      .row input { min-width: 160px; flex: 1; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/config.js"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

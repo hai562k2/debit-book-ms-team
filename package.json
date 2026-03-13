@@ -1,0 +1,21 @@
+{
+  "name": "teams-lunch-debt-webhook",
+  "version": "1.0.0",
+  "description": "Track lunch debt repayment in Microsoft Teams via webhook events.",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "start:be": "node src/server.js",
+    "start:fe": "node src/frontend-server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^4.19.2",
+    "node-cron": "^3.0.3"
+  }
+}
