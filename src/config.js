@@ -12,6 +12,19 @@ module.exports = {
     .filter(Boolean),
   storageFile: process.env.STORAGE_FILE || path.join(process.cwd(), 'data', 'campaigns.json'),
   outgoingWebhookUrl: process.env.TEAMS_OUTGOING_WEBHOOK_URL || '',
+  reminderImageEmbed: /^(1|true|yes)$/i.test(
+    (process.env.REMINDER_IMAGE_EMBED || '').trim()
+  ),
+  reminderImageFile: (process.env.REMINDER_IMAGE_FILE || 'qrcode.png').trim() || 'qrcode.png',
+  reminderImageUrl: (() => {
+    if (/^(1|true|yes)$/i.test((process.env.REMINDER_IMAGE_EMBED || '').trim())) {
+      return null;
+    }
+    const explicit = (process.env.REMINDER_IMAGE_URL || '').trim();
+    if (explicit) return explicit;
+    const baseUrl = (process.env.APP_BASE_URL || '').trim().replace(/\/$/, '');
+    return baseUrl ? `${baseUrl}/qrcode.png` : null;
+  })(),
   accountEmailDomain: process.env.ACCOUNT_EMAIL_DOMAIN || 'rikkeisoft.com',
   webhookToken: process.env.WEBHOOK_TOKEN || '',
   microsoftTenantId: process.env.MICROSOFT_TENANT_ID || '',

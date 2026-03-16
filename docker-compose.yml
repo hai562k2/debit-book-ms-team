@@ -1,0 +1,28 @@
+services:
+  app:
+    build: .
+    container_name: debit-book-ms-team
+    restart: unless-stopped
+    ports:
+      - "${BE_PORT:-4001}:4001"
+      - "${FE_PORT:-5173}:5173"
+    environment:
+      - BE_PORT=4001
+      - FE_PORT=5173
+      - FE_API_BASE_URL=${FE_API_BASE_URL:-http://localhost:4001}   
+      - FRONTEND_ORIGIN=${FRONTEND_ORIGIN:-}
+      - APP_TIMEZONE=${APP_TIMEZONE:-Asia/Ho_Chi_Minh}
+      - DAILY_REMINDER_TIMES=${DAILY_REMINDER_TIMES:-14:55,17:30}
+      - STORAGE_FILE=/app/data/campaigns.json
+      - ACCOUNT_EMAIL_DOMAIN=${ACCOUNT_EMAIL_DOMAIN:-rikkeisoft.com}
+      - WEBHOOK_TOKEN=${WEBHOOK_TOKEN:-}
+      - TEAMS_OUTGOING_WEBHOOK_URL=${TEAMS_OUTGOING_WEBHOOK_URL:-}
+      - MICROSOFT_TENANT_ID=${MICROSOFT_TENANT_ID:-}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-}
+      - MICROSOFT_WEBHOOK_SECRET=${MICROSOFT_WEBHOOK_SECRET:-}
+    volumes:
+      - app-data:/app/data
+
+volumes:
+  app-data:

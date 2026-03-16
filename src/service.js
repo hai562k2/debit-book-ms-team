@@ -168,6 +168,31 @@ function getOutstandingParticipantNames(campaign) {
   return names;
 }
 
+function getAmountForParticipant(campaign, participantKey) {
+  const amounts = campaign.perPersonAmounts;
+  if (amounts && typeof amounts === 'object' && amounts[participantKey] != null) {
+    const amount = Number(amounts[participantKey]);
+    return amount > 0 ? amount : (campaign.perPersonAmount || 0);
+  }
+  return campaign.perPersonAmount || 0;
+}
+
+function getTotalExpectedAmount(campaign) {
+  const participantMap = getParticipantMap(campaign);
+  const payerKey = getPayerKey(campaign);
+  let total = 0;
+  for (const [key] of participantMap.entries()) {
+    if (key === payerKey) continue;
+    total += getAmountForParticipant(campaign, key);
+  }
+  return total;
+}
+
+function getTotalOutstandingAmount(campaign) {
+  const debts = listCampaignOutstandingDebts(campaign);
+  return debts.reduce((sum, d) => sum + d.amount, 0);
+}
+
 function listCampaignOutstandingDebts(campaign) {
   const participantMap = getParticipantMap(campaign);
   const payerKey = getPayerKey(campaign);
@@ -184,6 +209,9 @@ function listCampaignOutstandingDebts(campaign) {
     if (key === payerKey) continue;
     if (paidKeys.has(key)) continue;
 
+    const amount = getAmountForParticipant(campaign, key);
+    if (amount <= 0) continue;
+
     debts.push({
       debtorKey: key,
       debtorName: name,
@@ -191,7 +219,7 @@ function listCampaignOutstandingDebts(campaign) {
       creditorKey: payerKey,
       creditorName: payerName,
       creditorEmail: toAccountEmail(payerName, accountEmailDomain),
-      amount: campaign.perPersonAmount,
+      amount,
       dateKey: campaign.dateKey,
       campaignTitle: campaign.title,
       rootMessageId: campaign.rootMessageId
@@ -493,14 +521,19 @@ function buildReminderDailyText(campaigns, dateKey) {
     if (outstanding === 0) continue;
 
     const backlogDay = campaign.dateKey === dateKey ? 'Hôm nay' : `Nợ từ ${campaign.dateKey}`;
-    const amountPerPerson = campaign.perPersonAmount.toLocaleString('vi-VN');
-    const totalOutstanding = (campaign.perPersonAmount * outstanding).toLocaleString('vi-VN');
+    const hasCustomAmounts = campaign.perPersonAmounts && typeof campaign.perPersonAmounts === 'object';
+    const amountHint = hasCustomAmounts
+      ? 'mỗi người khác nhau'
+      : `${(campaign.perPersonAmount || 0).toLocaleString('vi-VN')} VND/người`;
+    const totalOutstanding = hasCustomAmounts
+      ? getTotalOutstandingAmount(campaign).toLocaleString('vi-VN')
+      : ((campaign.perPersonAmount || 0) * outstanding).toLocaleString('vi-VN');
     const unpaidNames = getOutstandingParticipantNames(campaign);
     const payer = getPayerDisplayName(campaign) || 'Không rõ';
     const namesHint = unpaidNames.length > 0 ? ` Chưa trả: ${unpaidNames.join(', ')}.` : '';
 
     lines.push(
-      `- ${backlogDay}: còn ${outstanding}/${expected} người chưa trả (${amountPerPerson} VND/người, tổng nợ ${totalOutstanding} VND).` +
+      `- ${backlogDay}: còn ${outstanding}/${expected} người chưa trả (${amountHint}, tổng nợ ${totalOutstanding} VND).` +
         ` Đã trả ${paidCount}/${expected}. Người ứng: ${payer}. Tin gốc: "${campaign.title}".${namesHint}`
     );
   }
@@ -514,11 +547,14 @@ function buildReminderDailyText(campaigns, dateKey) {
 
 function buildCompletionText(campaign) {
   const lines = [];
-  const amountPerPerson = campaign.perPersonAmount.toLocaleString('vi-VN');
   const expected = getExpectedRepayers(campaign);
-  const total = (campaign.perPersonAmount * expected).toLocaleString('vi-VN');
+  const hasCustomAmounts = campaign.perPersonAmounts && typeof campaign.perPersonAmounts === 'object';
+  const total = hasCustomAmounts
+    ? getTotalExpectedAmount(campaign).toLocaleString('vi-VN')
+    : ((campaign.perPersonAmount || 0) * expected).toLocaleString('vi-VN');
+  const amountHint = hasCustomAmounts ? 'mỗi người khác nhau' : `${(campaign.perPersonAmount || 0).toLocaleString('vi-VN')} VND/người`;
   lines.push(`Đã thu đủ tiền bữa trưa: "${campaign.title}".`);
-  lines.push(`Đã trả: ${expected}/${expected} người (${amountPerPerson} VND/người, tổng ${total} VND).`);
+  lines.push(`Đã trả: ${expected}/${expected} người (${amountHint}, tổng ${total} VND).`);
   lines.push('Tạm dừng nhắc nợ cho bữa này.');
   return lines.join('\n');
 }
@@ -616,6 +652,7 @@ function createManualCampaign(payload, store, config) {
   const participantNames = parseParticipantNames(payload.participantNames, accountEmailDomain);
   const expectedPeopleFromInput = Number(payload.expectedPeople);
   const perPersonAmount = Number(payload.perPersonAmount);
+  const perPersonAmounts = payload.perPersonAmounts;
   const payerCode = toAccountKey(payload.payerCode || '', accountEmailDomain);
   const dateKeyInput =
     typeof payload.dateKey === 'string' ? payload.dateKey.trim() : '';
@@ -623,7 +660,19 @@ function createManualCampaign(payload, store, config) {
   if (!payload.title || typeof payload.title !== 'string') {
     throw new Error('Thiếu title');
   }
-  if (!perPersonAmount || perPersonAmount <= 0) {
+  if (perPersonAmounts && typeof perPersonAmounts === 'object') {
+    if (participantNames.length === 0) {
+      throw new Error('perPersonAmounts cần participantNames');
+    }
+    for (const name of participantNames) {
+      const key = toAccountKey(name, accountEmailDomain);
+      if (key === payerCode) continue;
+      const amount = Number(perPersonAmounts[key]);
+      if (!amount || amount <= 0) {
+        throw new Error(`Số tiền cho ${name} phải > 0`);
+      }
+    }
+  } else if (!perPersonAmount || perPersonAmount <= 0) {
     throw new Error('perPersonAmount phải > 0');
   }
   if (participantNames.length > 0 && !payerCode) {
@@ -641,7 +690,8 @@ function createManualCampaign(payload, store, config) {
     title: payload.title.trim(),
     dateKey,
     createdAt: timestamp,
-    perPersonAmount,
+    perPersonAmount: perPersonAmounts ? 0 : perPersonAmount,
+    perPersonAmounts: perPersonAmounts || undefined,
     expectedPeople: expectedPeopleFromInput,
     participants: participantNames,
     payerCode,
@@ -651,6 +701,7 @@ function createManualCampaign(payload, store, config) {
     reminderSlotsSent: [],
     closedAt: null,
     reminderWebhookUrl: resolveReminderWebhookUrl(payload, store, config),
+    reminderImageUrl: (payload.reminderImageUrl && String(payload.reminderImageUrl).trim()) || null,
     context: {
       teamId: payload.teamId || null,
       channelId: payload.channelId || null,

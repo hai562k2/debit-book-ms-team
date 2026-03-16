@@ -1,7 +1,8 @@
 const express = require('express');
+const path = require('path');
 const config = require('./config');
 const { CampaignStore } = require('./store');
-const { postToTeamsWebhook } = require('./notifier');
+const { postToTeamsWebhook, resolveReminderImage } = require('./notifier');
 const {
   handleEvent,
   createManualCampaign,
@@ -53,8 +54,9 @@ async function maybeSendCompletionNotice(campaign) {
   }
 
   const message = buildCompletionText(campaign);
+  const imageUrl = campaign.reminderImageUrl || config.reminderImageUrl || null;
   try {
-    await postToTeamsWebhook(webhookUrl, message);
+    await postToTeamsWebhook(webhookUrl, message, imageUrl);
   } catch (error) {
     console.error(
       `[completion] Failed to send completion notice for ${campaign.rootMessageId}: ${error.message}`
@@ -76,8 +78,9 @@ async function maybeSendProgressNotice(campaign, payment) {
 
   const openCampaigns = store.listOpenCampaigns();
   const message = buildCampaignProgressText(campaign, payment, openCampaigns);
+  const imageUrl = await resolveReminderImage(config, campaign);
   try {
-    await postToTeamsWebhook(webhookUrl, message);
+    await postToTeamsWebhook(webhookUrl, message, imageUrl);
   } catch (error) {
     console.error(
       `[progress] Failed to send progress notice for ${campaign.rootMessageId}: ${error.message}`
@@ -95,8 +98,9 @@ async function maybeSendCampaignCreatedNotice(campaign) {
 
   const openCampaigns = store.listOpenCampaigns();
   const message = buildCampaignCreatedText(campaign, openCampaigns);
+  const imageUrl = campaign.reminderImageUrl || config.reminderImageUrl || null;
   try {
-    await postToTeamsWebhook(webhookUrl, message);
+    await postToTeamsWebhook(webhookUrl, message, imageUrl);
   } catch (error) {
     console.error(
       `[created] Failed to send created notice for ${campaign.rootMessageId}: ${error.message}`
@@ -114,6 +118,11 @@ function isAuthorized(req) {
 
 app.get('/health', (req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/qrcode.png', (req, res) => {
+  const filePath = path.join(process.cwd(), 'qrcode.png');
+  res.sendFile(filePath, { maxAge: 86400 });
 });
 
 app.post('/webhook/teams', async (req, res) => {
@@ -171,6 +180,33 @@ app.post('/campaigns/:id/paid', async (req, res) => {
     return res.json({ ok: true, data });
   } catch (error) {
     return res.status(400).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/campaigns/:id/remind', async (req, res) => {
+  try {
+    const campaign = store.getCampaignByRootMessageId(req.params.id);
+    if (!campaign) {
+      return res.status(404).json({ ok: false, error: 'Không tìm thấy khoản thu' });
+    }
+    if (campaign.closedAt) {
+      return res.status(400).json({ ok: false, error: 'Khoản thu đã đóng' });
+    }
+
+    const webhookUrl = resolveCampaignWebhook(campaign);
+    if (!webhookUrl) {
+      return res.status(400).json({ ok: false, error: 'Chưa cấu hình webhook Teams' });
+    }
+
+    const openCampaigns = store.listOpenCampaigns();
+    const message = buildCampaignCreatedText(campaign, openCampaigns);
+    const prefix = '🔔 Nhắc nợ thủ công:\n\n';
+    const imageUrl = await resolveReminderImage(config, campaign);
+    await postToTeamsWebhook(webhookUrl, prefix + message, imageUrl);
+
+    return res.json({ ok: true, data: { sent: true } });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
   }
 });
 
