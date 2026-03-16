@@ -21,6 +21,10 @@ const { startReminderScheduler } = require('./scheduler');
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+const ERROR_CAMPAIGN_NOT_FOUND = 'Không tìm thấy khoản thu';
+const ERROR_CAMPAIGN_CLOSED = 'Khoản thu đã đóng';
+const ERROR_MISSING_WEBHOOK = 'Chưa cấu hình webhook Teams';
+const ERROR_MISSING_QR_IMAGE = 'Chưa cấu hình ảnh QR (REMINDER_QR_CONTENT, REMINDER_IMAGE_URL hoặc qrcode.png)';
 
 const allowedOrigin =
   config.frontendOrigin || `http://localhost:${config.frontendPort}`;
@@ -42,6 +46,17 @@ startReminderScheduler(store, config);
 
 function resolveCampaignWebhook(campaign) {
   return campaign.reminderWebhookUrl || config.outgoingWebhookUrl || '';
+}
+
+/**
+ * Finds campaign and webhook for notification routes.
+ * @param {string} campaignId - Root message id of campaign
+ * @returns {{campaign: object|null, webhookUrl: string}}
+ */
+function getCampaignAndWebhook(campaignId) {
+  const campaign = store.getCampaignByRootMessageId(campaignId);
+  if (!campaign) return { campaign: null, webhookUrl: '' };
+  return { campaign, webhookUrl: resolveCampaignWebhook(campaign) };
 }
 
 async function maybeSendCompletionNotice(campaign) {
@@ -100,9 +115,8 @@ async function maybeSendCampaignCreatedNotice(campaign) {
 
   const openCampaigns = store.listOpenCampaigns();
   const message = buildCampaignCreatedText(campaign, openCampaigns);
-  const imageUrl = await resolveReminderImage(config, campaign);
   try {
-    await postToTeamsWebhook(webhookUrl, message, imageUrl);
+    await postToTeamsWebhook(webhookUrl, message);
   } catch (error) {
     console.error(
       `[created] Failed to send created notice for ${campaign.rootMessageId}: ${error.message}`
@@ -205,17 +219,15 @@ app.post('/campaigns/:id/paid', async (req, res) => {
 
 app.post('/campaigns/:id/remind', async (req, res) => {
   try {
-    const campaign = store.getCampaignByRootMessageId(req.params.id);
+    const { campaign, webhookUrl } = getCampaignAndWebhook(req.params.id);
     if (!campaign) {
-      return res.status(404).json({ ok: false, error: 'Không tìm thấy khoản thu' });
+      return res.status(404).json({ ok: false, error: ERROR_CAMPAIGN_NOT_FOUND });
     }
     if (campaign.closedAt) {
-      return res.status(400).json({ ok: false, error: 'Khoản thu đã đóng' });
+      return res.status(400).json({ ok: false, error: ERROR_CAMPAIGN_CLOSED });
     }
-
-    const webhookUrl = resolveCampaignWebhook(campaign);
     if (!webhookUrl) {
-      return res.status(400).json({ ok: false, error: 'Chưa cấu hình webhook Teams' });
+      return res.status(400).json({ ok: false, error: ERROR_MISSING_WEBHOOK });
     }
 
     const openCampaigns = store.listOpenCampaigns();
@@ -232,23 +244,20 @@ app.post('/campaigns/:id/remind', async (req, res) => {
 
 app.post('/campaigns/:id/send-qr-image', async (req, res) => {
   try {
-    const campaign = store.getCampaignByRootMessageId(req.params.id);
+    const { campaign, webhookUrl } = getCampaignAndWebhook(req.params.id);
     if (!campaign) {
-      return res.status(404).json({ ok: false, error: 'Không tìm thấy khoản thu' });
+      return res.status(404).json({ ok: false, error: ERROR_CAMPAIGN_NOT_FOUND });
     }
-
-    const webhookUrl = resolveCampaignWebhook(campaign);
     if (!webhookUrl) {
-      return res.status(400).json({ ok: false, error: 'Chưa cấu hình webhook Teams' });
+      return res.status(400).json({ ok: false, error: ERROR_MISSING_WEBHOOK });
     }
 
     const imageUrl = await resolveReminderImage(config, campaign);
     if (!imageUrl || !imageUrl.trim()) {
-      return res.status(400).json({ ok: false, error: 'Chưa cấu hình ảnh QR (REMINDER_QR_CONTENT, REMINDER_IMAGE_URL hoặc qrcode.png)' });
+      return res.status(400).json({ ok: false, error: ERROR_MISSING_QR_IMAGE });
     }
 
-    const message = '📷 QR chuyển khoản';
-    await postToTeamsWebhook(webhookUrl, message, imageUrl);
+    await postToTeamsWebhook(webhookUrl, '', imageUrl);
 
     console.log(`[send-qr] Sent QR image for campaign ${campaign.rootMessageId}`);
     return res.json({ ok: true, data: { sent: true } });

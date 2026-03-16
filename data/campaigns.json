@@ -1,3 +1,29 @@
 {
-  "campaigns": {}
+  "campaigns": {
+    "manual-1773649430347": {
+      "rootMessageId": "manual-1773649430347",
+      "title": "Cơm trưa hôm nay",
+      "dateKey": "2026-03-16",
+      "createdAt": "2026-03-16T08:23:50.347Z",
+      "perPersonAmount": 100000,
+      "expectedPeople": 2,
+      "participants": [
+        "anv1",
+        "bnv1",
+        "cnv1"
+      ],
+      "payerCode": "anv1",
+      "accountEmailDomain": "rikkeisoft.com",
+      "sourceText": "Trưa nay mỗi người 100k, tổng 3 người",
+      "paidUsers": {},
+      "reminderSlotsSent": [],
+      "closedAt": null,
+      "reminderWebhookUrl": "https://defaultd43d7b87367a4e2c9e409ded6a42bf.83.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/52bed8fd09fb4d09a4a5384335d84d7b/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=Mo_3LZ1CbZUY79TykzDCfy07_5gcn5pAnVGoyOzxUfA",
+      "context": {
+        "teamId": null,
+        "channelId": null,
+        "conversationId": null
+      }
+    }
+  }
 }

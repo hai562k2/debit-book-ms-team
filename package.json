@@ -14,6 +14,7 @@
     "node": ">=18"
   },
   "dependencies": {
+    "adaptivecards": "^3.0.5",
     "dotenv": "^16.6.1",
     "express": "^4.19.2",
     "node-cron": "^3.0.3",

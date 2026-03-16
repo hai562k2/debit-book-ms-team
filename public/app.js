@@ -526,7 +526,7 @@
     return participants.filter((name) => toAccountKey(name) !== payerKey);
   }
 
-  function CampaignCard({ campaign, onMarkPaid, onRemind, getPaidCount, getExpectedRepayers, getUnpaidNames }) {
+  function CampaignCard({ campaign, onMarkPaid, onRemind, onSendQRImage, getPaidCount, getExpectedRepayers, getUnpaidNames }) {
     const paidCount = getPaidCount(campaign);
     const expected = getExpectedRepayers(campaign);
     const outstanding = Math.max(expected - paidCount, 0);

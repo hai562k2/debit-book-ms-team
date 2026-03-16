@@ -5,6 +5,9 @@ const QRCode = require('qrcode');
 
 const ADAPTIVE_CARD_SCHEMA = 'http://adaptivecards.io/schemas/adaptive-card.json';
 const MAX_EMBED_BYTES = 18000;
+const MAX_PAYLOAD_BYTES = 25000;
+const ADAPTIVE_CARD_CONTENT_TYPE = 'application/vnd.microsoft.card.adaptive';
+const ADAPTIVE_CARD_VERSION = '1.2';
 let embeddedImageCache = null;
 let generatedQRCache = null;
 let generatedQRCacheKey = null;
@@ -40,7 +43,7 @@ async function generateReminderQRBuffer(content) {
       errorCorrectionLevel: 'M'
     });
     return sharp(pngBuffer)
-      .resize(200, 200, { fit: 'inside', withoutEnlargement: true })
+      .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 75 })
       .toBuffer();
   } catch (err) {
@@ -70,13 +73,13 @@ async function generateReminderQRCode(content, config) {
     });
 
     let buffer = await sharp(pngBuffer)
-      .resize(200, 200, { fit: 'inside', withoutEnlargement: true })
+      .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 75 })
       .toBuffer();
 
     if (buffer.length > MAX_EMBED_BYTES) {
       buffer = await sharp(buffer)
-        .resize(150, 150, { fit: 'inside' })
+        .resize(300, 300, { fit: 'inside' })
         .jpeg({ quality: 65 })
         .toBuffer();
     }
@@ -108,7 +111,7 @@ async function loadEmbeddedReminderImage(config) {
 
     if (buffer.length > MAX_EMBED_BYTES) {
       const smaller = await sharp(buffer)
-        .resize(200, 200, { fit: 'inside' })
+        .resize(400, 400, { fit: 'inside' })
         .jpeg({ quality: 70 })
         .toBuffer();
       embeddedImageCache = `data:image/jpeg;base64,${smaller.toString('base64')}`;
@@ -162,21 +165,62 @@ async function resolveReminderImage(config, campaign) {
  * @returns {object[]} Adaptive Card body elements
  */
 function buildAdaptiveCardBody(messageText, imageUrl) {
-  const body = [
-    {
+  const body = [];
+  const hasMessageText = typeof messageText === 'string' && messageText.trim();
+  if (hasMessageText) {
+    body.push({
       type: 'TextBlock',
       text: messageText,
       wrap: true
-    }
-  ];
+    });
+  }
   if (imageUrl && typeof imageUrl === 'string' && imageUrl.trim()) {
     body.push({
       type: 'Image',
       url: imageUrl.trim(),
-      size: 'medium'
+      size: 'large'
     });
   }
   return body;
+}
+
+/**
+ * Builds Teams webhook payload from message and optional image.
+ * @param {string} messageText - Message text
+ * @param {string|null} imageUrl - Optional image URL
+ * @returns {{payload: object, textToSend: string, useAdaptiveCard: boolean}}
+ */
+function buildTeamsPayload(messageText, imageUrl) {
+  const normalizedMessage = typeof messageText === 'string' ? messageText : String(messageText || '');
+  const normalizedImageUrl =
+    typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : '';
+  const hasImage = Boolean(normalizedImageUrl);
+  const isDataUri = hasImage && normalizedImageUrl.toLowerCase().startsWith('data:');
+  const useAdaptiveCard = hasImage && !isDataUri;
+
+  const textToSend = normalizedMessage;
+
+  if (!useAdaptiveCard) {
+    return { payload: { text: textToSend }, textToSend, useAdaptiveCard };
+  }
+
+  const payload = {
+    type: 'message',
+    text: textToSend,
+    attachments: [
+      {
+        contentType: ADAPTIVE_CARD_CONTENT_TYPE,
+        contentUrl: null,
+        content: {
+          $schema: ADAPTIVE_CARD_SCHEMA,
+          type: 'AdaptiveCard',
+          version: ADAPTIVE_CARD_VERSION,
+          body: buildAdaptiveCardBody(normalizedMessage, normalizedImageUrl)
+        }
+      }
+    ]
+  };
+  return { payload, textToSend, useAdaptiveCard };
 }
 
 /**
@@ -186,47 +230,17 @@ function buildAdaptiveCardBody(messageText, imageUrl) {
  * @param {string|null} [imageUrl] - Optional image URL to embed in the message
  * @returns {Promise<{sent: boolean}|{skipped: boolean, reason: string}>}
  */
-const MAX_PAYLOAD_BYTES = 25000;
 
 async function postToTeamsWebhook(webhookUrl, messageText, imageUrl = null) {
   if (!webhookUrl) {
     return { skipped: true, reason: 'No webhook URL configured.' };
   }
 
-  const hasImage = imageUrl && typeof imageUrl === 'string' && imageUrl.trim();
-  const isDataUri = hasImage && imageUrl.trim().toLowerCase().startsWith('data:');
-  const useAdaptiveCard = hasImage && !isDataUri;
-
-  /** Power Automate thường chỉ chuyển text, không gửi Adaptive Card. Thêm link ảnh vào text để user click xem. */
-  const textToSend = useAdaptiveCard
-    ? `${messageText}\n\n📷 QR chuyển khoản: ${imageUrl.trim()}`
-    : messageText;
-
-  let payload;
-  if (useAdaptiveCard) {
-    payload = {
-      type: 'message',
-      text: textToSend,
-      attachments: [
-        {
-          contentType: 'application/vnd.microsoft.card.adaptive',
-          contentUrl: null,
-          content: {
-            $schema: ADAPTIVE_CARD_SCHEMA,
-            type: 'AdaptiveCard',
-            version: '1.2',
-            body: buildAdaptiveCardBody(messageText, imageUrl)
-          }
-        }
-      ]
-    };
-  } else {
-    payload = { text: textToSend };
-  }
-
-  const payloadStr = JSON.stringify(payload);
-  if (payloadStr.length > MAX_PAYLOAD_BYTES && useAdaptiveCard) {
-    payload = { text: textToSend };
+  const payloadResult = buildTeamsPayload(messageText, imageUrl);
+  let payload = payloadResult.payload;
+  const payloadStr = JSON.stringify(payloadResult.payload);
+  if (payloadStr.length > MAX_PAYLOAD_BYTES && payloadResult.useAdaptiveCard) {
+    payload = { text: payloadResult.textToSend };
   }
 
   const response = await fetch(webhookUrl, {
