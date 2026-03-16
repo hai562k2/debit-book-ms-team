@@ -1,8 +1,12 @@
 const express = require('express');
-const path = require('path');
 const config = require('./config');
 const { CampaignStore } = require('./store');
-const { postToTeamsWebhook, resolveReminderImage } = require('./notifier');
+const {
+  postToTeamsWebhook,
+  resolveReminderImage,
+  generateReminderQRBuffer,
+  buildTemplate
+} = require('./notifier');
 const {
   handleEvent,
   createManualCampaign,
@@ -54,9 +58,8 @@ async function maybeSendCompletionNotice(campaign) {
   }
 
   const message = buildCompletionText(campaign);
-  const imageUrl = campaign.reminderImageUrl || config.reminderImageUrl || null;
   try {
-    await postToTeamsWebhook(webhookUrl, message, imageUrl);
+    await postToTeamsWebhook(webhookUrl, message);
   } catch (error) {
     console.error(
       `[completion] Failed to send completion notice for ${campaign.rootMessageId}: ${error.message}`
@@ -78,9 +81,8 @@ async function maybeSendProgressNotice(campaign, payment) {
 
   const openCampaigns = store.listOpenCampaigns();
   const message = buildCampaignProgressText(campaign, payment, openCampaigns);
-  const imageUrl = await resolveReminderImage(config, campaign);
   try {
-    await postToTeamsWebhook(webhookUrl, message, imageUrl);
+    await postToTeamsWebhook(webhookUrl, message);
   } catch (error) {
     console.error(
       `[progress] Failed to send progress notice for ${campaign.rootMessageId}: ${error.message}`
@@ -98,7 +100,7 @@ async function maybeSendCampaignCreatedNotice(campaign) {
 
   const openCampaigns = store.listOpenCampaigns();
   const message = buildCampaignCreatedText(campaign, openCampaigns);
-  const imageUrl = campaign.reminderImageUrl || config.reminderImageUrl || null;
+  const imageUrl = await resolveReminderImage(config, campaign);
   try {
     await postToTeamsWebhook(webhookUrl, message, imageUrl);
   } catch (error) {
@@ -120,9 +122,27 @@ app.get('/health', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/qrcode.png', (req, res) => {
-  const filePath = path.join(process.cwd(), 'qrcode.png');
-  res.sendFile(filePath, { maxAge: 86400 });
+app.get('/api/reminder-qr', async (req, res) => {
+  const content = buildTemplate(config.reminderQRContent || '', null);
+  if (!content) {
+    return res.status(404).send('QR content not configured');
+  }
+  const buffer = await generateReminderQRBuffer(content);
+  if (!buffer) {
+    return res.status(500).send('Failed to generate QR');
+  }
+  res.set('Cache-Control', 'public, max-age=300');
+  res.type('image/jpeg');
+  res.send(buffer);
+});
+
+app.get('/api/reminder-image-url', async (req, res) => {
+  try {
+    const imageUrl = await resolveReminderImage(config, null);
+    res.json({ ok: true, data: { imageUrl: imageUrl || null } });
+  } catch (error) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
 });
 
 app.post('/webhook/teams', async (req, res) => {
@@ -201,9 +221,36 @@ app.post('/campaigns/:id/remind', async (req, res) => {
     const openCampaigns = store.listOpenCampaigns();
     const message = buildCampaignCreatedText(campaign, openCampaigns);
     const prefix = '🔔 Nhắc nợ thủ công:\n\n';
-    const imageUrl = await resolveReminderImage(config, campaign);
-    await postToTeamsWebhook(webhookUrl, prefix + message, imageUrl);
+    await postToTeamsWebhook(webhookUrl, prefix + message);
 
+    console.log(`[remind] Sent manual reminder for campaign ${campaign.rootMessageId}`);
+    return res.json({ ok: true, data: { sent: true } });
+  } catch (error) {
+    return res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+app.post('/campaigns/:id/send-qr-image', async (req, res) => {
+  try {
+    const campaign = store.getCampaignByRootMessageId(req.params.id);
+    if (!campaign) {
+      return res.status(404).json({ ok: false, error: 'Không tìm thấy khoản thu' });
+    }
+
+    const webhookUrl = resolveCampaignWebhook(campaign);
+    if (!webhookUrl) {
+      return res.status(400).json({ ok: false, error: 'Chưa cấu hình webhook Teams' });
+    }
+
+    const imageUrl = await resolveReminderImage(config, campaign);
+    if (!imageUrl || !imageUrl.trim()) {
+      return res.status(400).json({ ok: false, error: 'Chưa cấu hình ảnh QR (REMINDER_QR_CONTENT, REMINDER_IMAGE_URL hoặc qrcode.png)' });
+    }
+
+    const message = '📷 QR chuyển khoản';
+    await postToTeamsWebhook(webhookUrl, message, imageUrl);
+
+    console.log(`[send-qr] Sent QR image for campaign ${campaign.rootMessageId}`);
     return res.json({ ok: true, data: { sent: true } });
   } catch (error) {
     return res.status(500).json({ ok: false, error: error.message });

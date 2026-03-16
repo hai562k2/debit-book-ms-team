@@ -12,19 +12,17 @@ module.exports = {
     .filter(Boolean),
   storageFile: process.env.STORAGE_FILE || path.join(process.cwd(), 'data', 'campaigns.json'),
   outgoingWebhookUrl: process.env.TEAMS_OUTGOING_WEBHOOK_URL || '',
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL || '').trim() || null,
   reminderImageEmbed: /^(1|true|yes)$/i.test(
     (process.env.REMINDER_IMAGE_EMBED || '').trim()
   ),
   reminderImageFile: (process.env.REMINDER_IMAGE_FILE || 'qrcode.png').trim() || 'qrcode.png',
-  reminderImageUrl: (() => {
-    if (/^(1|true|yes)$/i.test((process.env.REMINDER_IMAGE_EMBED || '').trim())) {
-      return null;
-    }
-    const explicit = (process.env.REMINDER_IMAGE_URL || '').trim();
-    if (explicit) return explicit;
-    const baseUrl = (process.env.APP_BASE_URL || '').trim().replace(/\/$/, '');
-    return baseUrl ? `${baseUrl}/qrcode.png` : null;
-  })(),
+  reminderQRContent: (process.env.REMINDER_QR_CONTENT || '').trim() || null,
+  /** Direct URL to PNG/image for debt reminders (e.g. Cloudinary, VietQR). Overrides QR/file when set. */
+  reminderImageUrl: (process.env.REMINDER_IMAGE_URL || '').trim() || null,
+  reminderPlainTextOnly: /^(1|true|yes)$/i.test(
+    (process.env.REMINDER_PLAIN_TEXT_ONLY || '').trim()
+  ),
   accountEmailDomain: process.env.ACCOUNT_EMAIL_DOMAIN || 'rikkeisoft.com',
   webhookToken: process.env.WEBHOOK_TOKEN || '',
   microsoftTenantId: process.env.MICROSOFT_TENANT_ID || '',

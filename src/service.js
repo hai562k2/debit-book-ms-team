@@ -701,7 +701,6 @@ function createManualCampaign(payload, store, config) {
     reminderSlotsSent: [],
     closedAt: null,
     reminderWebhookUrl: resolveReminderWebhookUrl(payload, store, config),
-    reminderImageUrl: (payload.reminderImageUrl && String(payload.reminderImageUrl).trim()) || null,
     context: {
       teamId: payload.teamId || null,
       channelId: payload.channelId || null,

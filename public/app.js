@@ -159,7 +159,6 @@
     const [settlements, setSettlements] = useState([]);
     const [status, setStatus] = useState('');
     const [error, setError] = useState('');
-    const [commandHelp, setCommandHelp] = useState('');
 
     const SPLIT_MODE_AUTO = 'auto';
     const SPLIT_MODE_MANUAL = 'manual';
@@ -175,8 +174,7 @@
       payerCode: 'anv1',
       participantNamesText: 'anv1\nbnv1\ncnv1',
       customAmountsText: 'anv1 100000\nbnv1 80000\ncnv1 100000',
-      sourceText: 'Trưa nay mỗi người 100k, tổng 3 người',
-      reminderImageUrl: ''
+      sourceText: 'Trưa nay mỗi người 100k, tổng 3 người'
     });
 
     async function callApi(path, options) {
@@ -198,16 +196,14 @@
     async function refresh() {
       try {
         setError('');
-        const [campaignsRes, debtsRes, settlementsRes, helpRes] = await Promise.all([
+        const [campaignsRes, debtsRes, settlementsRes] = await Promise.all([
           callApi('/campaigns/open'),
           callApi('/debts/by-name'),
-          callApi('/debts/settlements'),
-          callApi('/help/command').catch(() => ({ ok: true, data: { help: '' } }))
+          callApi('/debts/settlements')
         ]);
         setOpenCampaigns(campaignsRes.data);
         setNameDebts(debtsRes.data);
         setSettlements(settlementsRes.data);
-        setCommandHelp(helpRes.data?.help || '');
       } catch (e) {
         setError(e.message);
       }
@@ -280,9 +276,6 @@
           participantNames,
           sourceText: manualForm.sourceText
         };
-        if (manualForm.reminderImageUrl && manualForm.reminderImageUrl.trim()) {
-          body.reminderImageUrl = manualForm.reminderImageUrl.trim();
-        }
         if (perPersonAmounts) {
           body.perPersonAmounts = perPersonAmounts;
         } else {
@@ -336,6 +329,22 @@
       }
     }
 
+    async function sendQRImage(rootMessageId) {
+      try {
+        setError('');
+        setStatus('Đang gửi ảnh QR...');
+        await callApi(`/campaigns/${encodeURIComponent(rootMessageId)}/send-qr-image`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        setStatus('Đã gửi ảnh QR chuyển khoản vào Teams.');
+        await refresh();
+      } catch (e) {
+        setError(e.message);
+      }
+    }
+
     const participantPreview = parseParticipantNamesFromText(manualForm.participantNamesText);
 
     return React.createElement(
@@ -345,13 +354,6 @@
         React.createElement('h1', null, 'Quản lý nợ tiền cơm trưa (Teams webhook)'),
         React.createElement('p', { className: 'small' }, `Nhập account như anv1, hệ thống tự hiểu mail là ${toAccountEmail('anv1')}.`)
       ),
-
-      commandHelp
-        ? React.createElement('div', { className: 'panel' },
-            React.createElement('h2', null, 'Lệnh tạo nợ trong Teams chat'),
-            React.createElement('pre', { className: 'small help-pre' }, commandHelp)
-          )
-        : null,
 
       React.createElement('form', { className: 'panel', onSubmit: createCampaign },
         React.createElement('h2', null, '1) Tạo bữa trưa cần thu tiền'),
@@ -471,14 +473,6 @@
             onChange: (e) => setManualForm({ ...manualForm, sourceText: e.target.value })
           })
         ),
-        React.createElement('label', null, 'URL ảnh nhúng vào tin nhắc nợ (tùy chọn)',
-          React.createElement('input', {
-            type: 'url',
-            value: manualForm.reminderImageUrl,
-            onChange: (e) => setManualForm({ ...manualForm, reminderImageUrl: e.target.value }),
-            placeholder: 'https://example.com/image.png'
-          })
-        ),
         React.createElement('div', { className: 'row' },
           React.createElement('button', { type: 'submit' }, 'Tạo khoản thu')
         )
@@ -515,6 +509,7 @@
               campaign,
               onMarkPaid: markPaid,
               onRemind: remindCampaign,
+              onSendQRImage: sendQRImage,
               getPaidCount,
               getExpectedRepayers,
               getUnpaidNames
@@ -525,17 +520,57 @@
     );
   }
 
+  function getRepayers(campaign) {
+    const participants = Array.isArray(campaign.participants) ? campaign.participants : [];
+    const payerKey = getPayerKey(campaign);
+    return participants.filter((name) => toAccountKey(name) !== payerKey);
+  }
+
   function CampaignCard({ campaign, onMarkPaid, onRemind, getPaidCount, getExpectedRepayers, getUnpaidNames }) {
     const paidCount = getPaidCount(campaign);
     const expected = getExpectedRepayers(campaign);
     const outstanding = Math.max(expected - paidCount, 0);
     const participants = Array.isArray(campaign.participants) ? campaign.participants : [];
     const hasParticipants = participants.length > 0;
-    const unpaidNames = getUnpaidNames(campaign);
+    const repayers = getRepayers(campaign);
+    const paidKeys = getPaidParticipantKeys(campaign);
 
-    const [participantName, setParticipantName] = useState('');
-    const [userId, setUserId] = useState('');
-    const [displayName, setDisplayName] = useState('');
+    const [selectedToMark, setSelectedToMark] = useState(new Set());
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const isMountedRef = React.useRef(true);
+    React.useEffect(function () {
+      return function () {
+        isMountedRef.current = false;
+      };
+    }, []);
+
+    const toggleSelect = function (key) {
+      if (paidKeys.has(key)) return;
+      setSelectedToMark(function (prev) {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    };
+
+    const handleSubmit = async function () {
+      if (selectedToMark.size === 0 || !onMarkPaid) return;
+      setIsSubmitting(true);
+      try {
+        const keysToMark = Array.from(selectedToMark);
+        for (const key of keysToMark) {
+          if (!isMountedRef.current) return;
+          await onMarkPaid(campaign.rootMessageId, {
+            participantName: key,
+            displayName: key
+          });
+        }
+        if (isMountedRef.current) setSelectedToMark(new Set());
+      } finally {
+        if (isMountedRef.current) setIsSubmitting(false);
+      }
+    };
 
     return React.createElement('div', { className: 'campaign' },
       React.createElement('p', { className: 'campaign-title' }, campaign.title),
@@ -552,9 +587,42 @@
               .join(' | ')
           )
         : React.createElement('p', { className: 'small' }, `Tiền mỗi người: ${(campaign.perPersonAmount || 0).toLocaleString('vi-VN')} VND`),
-      hasParticipants
-        ? React.createElement('p', { className: 'small' }, `Còn nợ: ${unpaidNames.length > 0 ? unpaidNames.join(', ') : 'Không ai'}`)
-        : null,
+      hasParticipants && repayers.length > 0
+        ? React.createElement('div', { className: 'paid-checkboxes' },
+            React.createElement('p', { className: 'small paid-label' }, 'Trả nợ:'),
+            React.createElement('div', { className: 'checkbox-list' },
+              repayers.map((name) => {
+                const key = toAccountKey(name);
+                const isPaid = paidKeys.has(key);
+                const isSelected = selectedToMark.has(key);
+                return React.createElement('label', {
+                  key: key,
+                  className: 'checkbox-item' + (isPaid ? ' paid' : '')
+                },
+                  React.createElement('input', {
+                    type: 'checkbox',
+                    checked: isPaid || isSelected,
+                    disabled: isPaid,
+                    onChange: function () {
+                      toggleSelect(key);
+                    }
+                  }),
+                  React.createElement('span', null, name)
+                );
+              })
+            ),
+            selectedToMark.size > 0
+              ? React.createElement('button', {
+                  type: 'button',
+                  className: 'submit-paid-btn',
+                  disabled: isSubmitting,
+                  onClick: handleSubmit
+                }, isSubmitting ? 'Đang xử lý...' : 'Đánh dấu đã trả (' + selectedToMark.size + ' người)')
+              : null
+          )
+        : hasParticipants
+          ? React.createElement('p', { className: 'small' }, 'Còn nợ: Không ai')
+          : null,
       React.createElement('div', { className: 'row' },
         React.createElement('button', {
           type: 'button',
@@ -563,60 +631,49 @@
             if (onRemind) onRemind(campaign.rootMessageId);
           }
         }, 'Nhắc nợ vào Teams'),
-        hasParticipants
-          ? React.createElement(React.Fragment, null,
-              React.createElement('input', {
-                value: participantName,
-                onChange: (e) => setParticipantName(e.target.value),
-                placeholder: 'Mã account đã trả (vd anv1)'
-              }),
-              React.createElement('input', {
-                value: userId,
-                onChange: (e) => setUserId(e.target.value),
-                placeholder: 'userId Teams (không bắt buộc)'
-              }),
-              React.createElement('button', {
-                type: 'button',
-                onClick: function () {
-                  if (!participantName.trim()) return;
-                  onMarkPaid(campaign.rootMessageId, {
-                    participantName: toAccountKey(participantName.trim()),
-                    displayName: toAccountKey(participantName.trim()),
-                    userId: userId.trim() || undefined
-                  });
-                  setParticipantName('');
-                  setUserId('');
-                }
-              }, 'Đánh dấu đã trả')
-            )
+        React.createElement('button', {
+          type: 'button',
+          className: 'secondary',
+          onClick: function () {
+            if (onSendQRImage) onSendQRImage(campaign.rootMessageId);
+          }
+        }, 'Gửi ảnh QR chuyển khoản'),
+        !hasParticipants
+          ? React.createElement(ManualMarkPaidInput, {
+              campaign,
+              onMarkPaid
+            })
           : null
-      ),
-      !hasParticipants
-        ? React.createElement('div', { className: 'row' },
-            React.createElement('input', {
-              value: userId,
-              onChange: (e) => setUserId(e.target.value),
-              placeholder: 'userId (AAD id)'
-            }),
-            React.createElement('input', {
-              value: displayName,
-              onChange: (e) => setDisplayName(e.target.value),
-              placeholder: 'displayName'
-            }),
-            React.createElement('button', {
-              type: 'button',
-              onClick: function () {
-                if (!userId.trim() && !displayName.trim()) return;
-                onMarkPaid(campaign.rootMessageId, {
-                  userId: userId.trim() || undefined,
-                  displayName: displayName.trim() || undefined
-                });
-                setUserId('');
-                setDisplayName('');
-              }
-            }, 'Đánh dấu đã trả')
-          )
-        : null
+      )
+    );
+  }
+
+  function ManualMarkPaidInput({ campaign, onMarkPaid }) {
+    const [userId, setUserId] = useState('');
+    const [displayName, setDisplayName] = useState('');
+    return React.createElement(React.Fragment, null,
+      React.createElement('input', {
+        value: userId,
+        onChange: (e) => setUserId(e.target.value),
+        placeholder: 'userId (AAD id)'
+      }),
+      React.createElement('input', {
+        value: displayName,
+        onChange: (e) => setDisplayName(e.target.value),
+        placeholder: 'displayName'
+      }),
+      React.createElement('button', {
+        type: 'button',
+        onClick: function () {
+          if (!userId.trim() && !displayName.trim()) return;
+          onMarkPaid(campaign.rootMessageId, {
+            userId: userId.trim() || undefined,
+            displayName: displayName.trim() || undefined
+          });
+          setUserId('');
+          setDisplayName('');
+        }
+      }, 'Đánh dấu đã trả')
     );
   }
 
