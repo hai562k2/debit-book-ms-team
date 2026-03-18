@@ -133,20 +133,6 @@
     return count;
   }
 
-  function getUnpaidNames(campaign) {
-    const participants = Array.isArray(campaign.participants) ? campaign.participants : [];
-    if (participants.length === 0) return [];
-
-    const paidKeys = getPaidParticipantKeys(campaign);
-    const payerKey = getPayerKey(campaign);
-
-    return participants.filter((name) => {
-      const key = toAccountKey(name);
-      if (payerKey && key === payerKey) return false;
-      return !paidKeys.has(key);
-    });
-  }
-
   function getTodayDateInputValue() {
     const now = new Date();
     const localNow = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -511,8 +497,7 @@
               onRemind: remindCampaign,
               onSendQRImage: sendQRImage,
               getPaidCount,
-              getExpectedRepayers,
-              getUnpaidNames
+              getExpectedRepayers
             }))
       ),
 
@@ -526,7 +511,7 @@
     return participants.filter((name) => toAccountKey(name) !== payerKey);
   }
 
-  function CampaignCard({ campaign, onMarkPaid, onRemind, onSendQRImage, getPaidCount, getExpectedRepayers, getUnpaidNames }) {
+  function CampaignCard({ campaign, onMarkPaid, onRemind, onSendQRImage, getPaidCount, getExpectedRepayers }) {
     const paidCount = getPaidCount(campaign);
     const expected = getExpectedRepayers(campaign);
     const outstanding = Math.max(expected - paidCount, 0);

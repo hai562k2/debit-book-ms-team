@@ -2,7 +2,7 @@ const express = require('express');
 const config = require('./config');
 const { CampaignStore } = require('./store');
 const {
-  postToTeamsWebhook,
+  postToTeamsWebhookCard,
   resolveReminderImage,
   generateReminderQRBuffer,
   buildTemplate
@@ -11,9 +11,9 @@ const {
   handleEvent,
   createManualCampaign,
   markCampaignPaid,
-  buildCampaignCreatedText,
-  buildCampaignProgressText,
-  buildCompletionText,
+  buildCompletionCard,
+  buildProgressCard,
+  buildCampaignCreatedCard,
   buildDebtByName,
   buildPairSettlements
 } = require('./service');
@@ -72,9 +72,9 @@ async function maybeSendCompletionNotice(campaign) {
     return;
   }
 
-  const message = buildCompletionText(campaign);
+  const cardBody = buildCompletionCard(campaign);
   try {
-    await postToTeamsWebhook(webhookUrl, message);
+    await postToTeamsWebhookCard(webhookUrl, cardBody);
   } catch (error) {
     console.error(
       `[completion] Failed to send completion notice for ${campaign.rootMessageId}: ${error.message}`
@@ -95,9 +95,9 @@ async function maybeSendProgressNotice(campaign, payment) {
   }
 
   const openCampaigns = store.listOpenCampaigns();
-  const message = buildCampaignProgressText(campaign, payment, openCampaigns);
+  const cardBody = buildProgressCard(campaign, payment, openCampaigns);
   try {
-    await postToTeamsWebhook(webhookUrl, message);
+    await postToTeamsWebhookCard(webhookUrl, cardBody);
   } catch (error) {
     console.error(
       `[progress] Failed to send progress notice for ${campaign.rootMessageId}: ${error.message}`
@@ -114,9 +114,9 @@ async function maybeSendCampaignCreatedNotice(campaign) {
   }
 
   const openCampaigns = store.listOpenCampaigns();
-  const message = buildCampaignCreatedText(campaign, openCampaigns);
+  const cardBody = buildCampaignCreatedCard(campaign, openCampaigns);
   try {
-    await postToTeamsWebhook(webhookUrl, message);
+    await postToTeamsWebhookCard(webhookUrl, cardBody);
   } catch (error) {
     console.error(
       `[created] Failed to send created notice for ${campaign.rootMessageId}: ${error.message}`
@@ -148,15 +148,6 @@ app.get('/api/reminder-qr', async (req, res) => {
   res.set('Cache-Control', 'public, max-age=300');
   res.type('image/jpeg');
   res.send(buffer);
-});
-
-app.get('/api/reminder-image-url', async (req, res) => {
-  try {
-    const imageUrl = await resolveReminderImage(config, null);
-    res.json({ ok: true, data: { imageUrl: imageUrl || null } });
-  } catch (error) {
-    res.status(500).json({ ok: false, error: error.message });
-  }
 });
 
 app.post('/webhook/teams', async (req, res) => {
@@ -207,10 +198,10 @@ app.post('/campaigns/:id/paid', async (req, res) => {
       email: req.body.email || req.body.mail || req.body.userPrincipalName
     };
     const data = markCampaignPaid(req.params.id, user, store);
-    if (data.payment && data.payment.changed) {
+    await maybeSendCompletionNotice(data.campaign);
+    if (data.payment && data.payment.changed && !data.payment.becameClosed) {
       await maybeSendProgressNotice(data.campaign, data.payment);
     }
-    await maybeSendCompletionNotice(data.campaign);
     return res.json({ ok: true, data });
   } catch (error) {
     return res.status(400).json({ ok: false, error: error.message });
@@ -231,9 +222,11 @@ app.post('/campaigns/:id/remind', async (req, res) => {
     }
 
     const openCampaigns = store.listOpenCampaigns();
-    const message = buildCampaignCreatedText(campaign, openCampaigns);
-    const prefix = '🔔 Nhắc nợ thủ công:\n\n';
-    await postToTeamsWebhook(webhookUrl, prefix + message);
+    const cardBody = [
+      { type: 'TextBlock', text: '🔔 Nhắc nợ thủ công:', wrap: true, weight: 'bolder', size: 'medium' },
+      ...buildCampaignCreatedCard(campaign, openCampaigns)
+    ];
+    await postToTeamsWebhookCard(webhookUrl, cardBody);
 
     console.log(`[remind] Sent manual reminder for campaign ${campaign.rootMessageId}`);
     return res.json({ ok: true, data: { sent: true } });
@@ -257,7 +250,8 @@ app.post('/campaigns/:id/send-qr-image', async (req, res) => {
       return res.status(400).json({ ok: false, error: ERROR_MISSING_QR_IMAGE });
     }
 
-    await postToTeamsWebhook(webhookUrl, '', imageUrl);
+    const cardBody = [{ type: 'Image', url: imageUrl.trim(), size: 'large' }];
+    await postToTeamsWebhookCard(webhookUrl, cardBody);
 
     console.log(`[send-qr] Sent QR image for campaign ${campaign.rootMessageId}`);
     return res.json({ ok: true, data: { sent: true } });

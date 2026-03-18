@@ -4,12 +4,12 @@ const {
   handleEvent,
   createManualCampaign,
   markCampaignPaid,
-  buildCompletionText,
+  buildCompletionCard,
+  buildCampaignCreatedCard,
+  buildReminderTotalCard,
+  buildReminderDailyCard,
   buildDebtByName,
-  buildPairSettlements,
-  buildCampaignCreatedText,
-  buildReminderTotalText,
-  buildReminderDailyText
+  buildPairSettlements
 } = require('../src/service');
 
 function makeStore() {
@@ -254,7 +254,7 @@ test('markCampaignPaid can match participant by email with configured domain', (
   assert.equal(paid.payment.participantName, 'hainv1');
 });
 
-test('buildCampaignCreatedText shows immediate debtor-creditor lines', () => {
+test('buildCampaignCreatedCard shows immediate debtor-creditor lines', () => {
   const campaign = {
     title: 'Com trua',
     dateKey: '2026-03-12',
@@ -265,13 +265,14 @@ test('buildCampaignCreatedText shows immediate debtor-creditor lines', () => {
     rootMessageId: 'm-created'
   };
 
-  const text = buildCampaignCreatedText(campaign, [campaign]);
+  const card = buildCampaignCreatedCard(campaign, [campaign]);
+  const text = card.map((el) => el.text || '').join(' ');
   assert.equal(text.includes('Ai nợ ai cho bữa này'), true);
   assert.equal(text.includes('bnv1 nợ anv1'), true);
 });
 
-test('buildCompletionText includes settled status', () => {
-  const text = buildCompletionText({
+test('buildCompletionCard includes settled status', () => {
+  const card = buildCompletionCard({
     title: 'Com trua thu 5',
     perPersonAmount: 120000,
     expectedPeople: 2,
@@ -279,16 +280,20 @@ test('buildCompletionText includes settled status', () => {
     payerCode: 'anv1'
   });
 
-  assert.equal(text.includes('Đã thu đủ tiền bữa trưa'), true);
-  assert.equal(text.includes('Tạm dừng nhắc nợ cho bữa này.'), true);
+  const hasTitle = card.some((el) => el.text && el.text.includes('Đã thu đủ'));
+  const hasSettled = card.some((el) => el.facts && el.facts.some((f) => f.value && f.value.includes('Tạm dừng nhắc nợ')));
+  assert.equal(hasTitle, true);
+  assert.equal(hasSettled, true);
 });
 
-test('buildReminderTotalText shows "Không ai nợ ai." when total debt is empty', () => {
-  const text = buildReminderTotalText([], '2026-03-12');
+test('buildReminderTotalCard shows "Không ai nợ ai." when total debt is empty', () => {
+  const card = buildReminderTotalCard([], '2026-03-12');
+  const text = card.map((el) => el.text || '').join(' ');
   assert.equal(text.includes('Không ai nợ ai.'), true);
 });
 
-test('buildReminderDailyText shows empty daily debt message when no open campaign', () => {
-  const text = buildReminderDailyText([], '2026-03-12');
+test('buildReminderDailyCard shows empty daily debt message when no open campaign', () => {
+  const card = buildReminderDailyCard([], '2026-03-12');
+  const text = card.map((el) => el.text || '').join(' ');
   assert.equal(text.includes('Không còn khoản nợ theo ngày.'), true);
 });

@@ -43,7 +43,7 @@ async function generateReminderQRBuffer(content) {
       errorCorrectionLevel: 'M'
     });
     return sharp(pngBuffer)
-      .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+      .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 75 })
       .toBuffer();
   } catch (err) {
@@ -54,10 +54,9 @@ async function generateReminderQRBuffer(content) {
 /**
  * Generates QR code from text, compresses to fit Teams payload limit, returns data URI.
  * @param {string} content - Text/URL to encode
- * @param {object} config - App config
  * @returns {Promise<string|null>} data URI or null
  */
-async function generateReminderQRCode(content, config) {
+async function generateReminderQRCode(content) {
   if (!content || typeof content !== 'string' || !content.trim()) return null;
 
   const cacheKey = content;
@@ -73,13 +72,13 @@ async function generateReminderQRCode(content, config) {
     });
 
     let buffer = await sharp(pngBuffer)
-      .resize(400, 400, { fit: 'inside', withoutEnlargement: true })
+      .resize(600, 600, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 75 })
       .toBuffer();
 
     if (buffer.length > MAX_EMBED_BYTES) {
       buffer = await sharp(buffer)
-        .resize(300, 300, { fit: 'inside' })
+        .resize(400, 400, { fit: 'inside' })
         .jpeg({ quality: 65 })
         .toBuffer();
     }
@@ -105,13 +104,13 @@ async function loadEmbeddedReminderImage(config) {
 
   try {
     const buffer = await sharp(filePath)
-      .resize(300, 300, { fit: 'inside', withoutEnlargement: true })
+      .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 80 })
       .toBuffer();
 
     if (buffer.length > MAX_EMBED_BYTES) {
       const smaller = await sharp(buffer)
-        .resize(400, 400, { fit: 'inside' })
+        .resize(600, 600, { fit: 'inside' })
         .jpeg({ quality: 70 })
         .toBuffer();
       embeddedImageCache = `data:image/jpeg;base64,${smaller.toString('base64')}`;
@@ -147,7 +146,7 @@ async function resolveReminderImage(config, campaign) {
         const base = config.publicBaseUrl.replace(/\/$/, '');
         return `${base}/api/reminder-qr`;
       }
-      const dataUri = await generateReminderQRCode(content, config);
+      const dataUri = await generateReminderQRCode(content);
       if (dataUri) return dataUri;
     }
   }
@@ -159,54 +158,15 @@ async function resolveReminderImage(config, campaign) {
 }
 
 /**
- * Builds Adaptive Card body with optional image.
- * @param {string} messageText - Text content
- * @param {string|null} imageUrl - Optional image URL to embed
- * @returns {object[]} Adaptive Card body elements
+ * Builds Teams webhook payload with Adaptive Card only (no text fallback).
+ * @param {object[]} cardBody - Adaptive Card body elements
+ * @returns {object} Teams message payload
  */
-function buildAdaptiveCardBody(messageText, imageUrl) {
-  const body = [];
-  const hasMessageText = typeof messageText === 'string' && messageText.trim();
-  if (hasMessageText) {
-    body.push({
-      type: 'TextBlock',
-      text: messageText,
-      wrap: true
-    });
-  }
-  if (imageUrl && typeof imageUrl === 'string' && imageUrl.trim()) {
-    body.push({
-      type: 'Image',
-      url: imageUrl.trim(),
-      size: 'large'
-    });
-  }
-  return body;
-}
-
-/**
- * Builds Teams webhook payload from message and optional image.
- * @param {string} messageText - Message text
- * @param {string|null} imageUrl - Optional image URL
- * @returns {{payload: object, textToSend: string, useAdaptiveCard: boolean}}
- */
-function buildTeamsPayload(messageText, imageUrl) {
-  const normalizedMessage = typeof messageText === 'string' ? messageText : String(messageText || '');
-  const normalizedImageUrl =
-    typeof imageUrl === 'string' && imageUrl.trim() ? imageUrl.trim() : '';
-  const hasImage = Boolean(normalizedImageUrl);
-  const isDataUri = hasImage && normalizedImageUrl.toLowerCase().startsWith('data:');
-  const useAdaptiveCard = hasImage && !isDataUri;
-
-  const textToSend = normalizedMessage;
-
-  if (!useAdaptiveCard) {
-    return { payload: { text: textToSend }, textToSend, useAdaptiveCard };
-  }
-
-  const payload = {
+function buildTeamsCardPayload(cardBody) {
+  const body = Array.isArray(cardBody) && cardBody.length > 0 ? cardBody : [{ type: 'TextBlock', text: ' ', wrap: true }];
+  return {
     type: 'message',
-    text: textToSend,
+    text: '',
     attachments: [
       {
         contentType: ADAPTIVE_CARD_CONTENT_TYPE,
@@ -215,39 +175,35 @@ function buildTeamsPayload(messageText, imageUrl) {
           $schema: ADAPTIVE_CARD_SCHEMA,
           type: 'AdaptiveCard',
           version: ADAPTIVE_CARD_VERSION,
-          body: buildAdaptiveCardBody(normalizedMessage, normalizedImageUrl)
+          body
         }
       }
     ]
   };
-  return { payload, textToSend, useAdaptiveCard };
 }
 
 /**
- * Posts message to Teams webhook. When imageUrl is provided, sends Adaptive Card with embedded image.
+ * Posts Adaptive Card to Teams webhook (no text, card only).
  * @param {string} webhookUrl - Teams webhook URL
- * @param {string} messageText - Message text
- * @param {string|null} [imageUrl] - Optional image URL to embed in the message
+ * @param {object[]} cardBody - Adaptive Card body elements
  * @returns {Promise<{sent: boolean}|{skipped: boolean, reason: string}>}
  */
-
-async function postToTeamsWebhook(webhookUrl, messageText, imageUrl = null) {
+async function postToTeamsWebhookCard(webhookUrl, cardBody) {
   if (!webhookUrl) {
     return { skipped: true, reason: 'No webhook URL configured.' };
   }
 
-  const payloadResult = buildTeamsPayload(messageText, imageUrl);
-  let payload = payloadResult.payload;
-  const payloadStr = JSON.stringify(payloadResult.payload);
-  if (payloadStr.length > MAX_PAYLOAD_BYTES && payloadResult.useAdaptiveCard) {
-    payload = { text: payloadResult.textToSend };
+  let payload = buildTeamsCardPayload(cardBody);
+  let payloadStr = JSON.stringify(payload);
+
+  if (payloadStr.length > MAX_PAYLOAD_BYTES && Array.isArray(cardBody) && cardBody.length > 5) {
+    payload = buildTeamsCardPayload(cardBody.slice(0, 5));
+    payloadStr = JSON.stringify(payload);
   }
 
   const response = await fetch(webhookUrl, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
 
@@ -260,7 +216,7 @@ async function postToTeamsWebhook(webhookUrl, messageText, imageUrl = null) {
 }
 
 module.exports = {
-  postToTeamsWebhook,
+  postToTeamsWebhookCard,
   resolveReminderImage,
   generateReminderQRBuffer,
   buildTemplate
