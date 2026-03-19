@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const { nowDateAndTimeKeys } = require('./time');
-const { buildReminderTotalText, buildReminderDailyText } = require('./service');
-const { postToTeamsWebhook } = require('./notifier');
+const { buildReminderTotalCard, buildReminderDailyCard } = require('./service');
+const { postToTeamsWebhookCard } = require('./notifier');
 
 function startReminderScheduler(store, config, logger = console) {
   const slotSet = new Set(config.dailyReminderTimes);
@@ -38,12 +38,12 @@ function startReminderScheduler(store, config, logger = console) {
     }
 
     for (const [webhookUrl, campaigns] of groupedByWebhook.entries()) {
-      const totalMessage = buildReminderTotalText(campaigns, dateKey);
-      const dailyMessage = buildReminderDailyText(campaigns, dateKey);
+      const totalCardBody = buildReminderTotalCard(campaigns, dateKey);
+      const dailyCardBody = buildReminderDailyCard(campaigns, dateKey);
 
       try {
-        await postToTeamsWebhook(webhookUrl, totalMessage);
-        await postToTeamsWebhook(webhookUrl, dailyMessage);
+        await postToTeamsWebhookCard(webhookUrl, totalCardBody);
+        await postToTeamsWebhookCard(webhookUrl, dailyCardBody);
 
         for (const campaign of campaigns) {
           campaign.reminderSlotsSent.push(`${dateKey}_${timeKey}`);
